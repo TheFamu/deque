@@ -27,9 +27,9 @@ func main() {
 	opt := parseFlags()
 	args := parseArgV()
 
-	var queueMap map[string]any
+	queueMap := make(map[string][]any)
 
-	readQueue(&queueMap, opt) // needs pointer bc nil map
+	readQueue(queueMap, opt)
 	dq := getDq(queueMap, args)
 
 	switch args.Operation {
@@ -47,6 +47,7 @@ func main() {
 		printSlice(&dq)
 	case "delete":
 		delete(queueMap, args.Queue)
+        return
 	default:
 		fmt.Fprintln(os.Stderr, "Invalid Operation:", "'"+string(args.Operation)+"'",
 			"Valid Operators: shift, unshift, pop, push, list, delete")
@@ -128,21 +129,21 @@ func parseArgV() ArgV {
 	return args
 }
 
-func readQueue(queueMap *map[string]any, opt Opt) {
+func readQueue(queueMap map[string][]any, opt Opt) {
 	jsonBytes := readQueueFile(opt.QueueFile)
 
 	//    fmt.Printf("Json File: %s, Bytes: %s\n", opt.QueueFile, jsonBytes)
 
 	if len(jsonBytes) != 0 {
-		if err := json.Unmarshal(jsonBytes, &queueMap); err != nil {
+		if err := json.Unmarshal(jsonBytes, queueMap); err != nil {
 			log.Fatalf("Failed to unpack json: %s", err)
 		}
 	}
 }
 
 // returns blizzard
-func getDq(queueMap map[string]any, args ArgV) []any {
-	dq, ok := queueMap[args.Queue].([]any)
+func getDq(queueMap map[string][]any, args ArgV) []any {
+	dq, ok := queueMap[args.Queue]
 	if !ok {
 		// Error if unshift or pop
 		if args.Operation == "shift" || args.Operation == "pop" {
@@ -152,7 +153,7 @@ func getDq(queueMap map[string]any, args ArgV) []any {
 		// Create it for unshift or push
 		queueMap[args.Queue] = []any{}
 	}
-	dq = queueMap[args.Queue].([]any)
+	dq = queueMap[args.Queue]
 	return dq
 }
 
@@ -198,7 +199,7 @@ func push(dq *[]any, data any) {
 	*dq = append(*dq, data)
 }
 
-func keys(queueMap map[string]any) {
+func keys(queueMap map[string][]any) {
 	// make slice with len of map
 	keys := make([]any, 0, len(queueMap)) // has to be an any slice for printSlice
 
@@ -224,7 +225,7 @@ func printSlice(slice *[]any) {
 	fmt.Println()
 }
 
-func toJson(q map[string]any) string {
+func toJson(q map[string][]any) string {
 	// Convert map to JSON bytes
 	jsonBytes, err := json.Marshal(q)
 	if err != nil {
