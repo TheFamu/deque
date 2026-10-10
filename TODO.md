@@ -14,9 +14,12 @@
 * [x] **Rewrite to use Deque Struct + Struct methods**
   - Can do arbitrary typing this way
 * [ ] **Write test code**
+* [ ] **Make go docs generate man page for util**
+  - This should probably go in ci/cd, but want to play around with it first.
 * [ ] **Write github actions yaml**
   - Dev Branch 
-    - Linter
+    - `go vet`
+    - Linter (`golangci-lint run`)
     - Run tests
     - Run coverage
   - Merge to main

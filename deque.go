@@ -8,9 +8,20 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 var ErrEmptyDeque = errors.New("deque is empty")
+
+var ops = map[string]opSpec{
+	"shift":   {true, false},
+	"unshift": {true, true},
+	"pop":     {true, false},
+	"push":    {true, true},
+	"keys":    {false, false},
+	"list":    {true, false},
+	"delete":  {true, false},
+}
 
 // ArgV is a struct holding flag arguments.
 type Opt struct {
@@ -25,6 +36,12 @@ type ArgV struct {
 	Operation string
 	Deque     string
 	Data      string
+}
+
+// opSpec is a struct holding specification for ArgV args.
+type opSpec struct {
+	needsDeque bool
+	needsItem  bool
 }
 
 // Double ended queue data structure holding items of type T.
@@ -88,7 +105,13 @@ func main() {
 
 	flag.Usage = printUsage
 	opt, err := parseFlags()
-	args := parseArgV()
+	args, err := parseArgV()
+
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		printUsage()
+		os.Exit(1)
+	}
 
 	// Mapping of string keys to Deque structs.
 	var dequeMap map[string]*Deque[any]
@@ -120,10 +143,6 @@ func main() {
 			fmt.Println(item)
 		}
 	case "unshift":
-		if args.Data == "" {
-			fmt.Fprintf(os.Stderr, "Error missing unshift item\n")
-			os.Exit(2)
-		}
 		// Create deque if doesn't exist.
 		deque = createDeque(dequeMap, args.Deque)
 		deque.Unshift(args.Data)
@@ -137,10 +156,6 @@ func main() {
 			fmt.Println(item)
 		}
 	case "push":
-		if args.Data == "" {
-			fmt.Fprintf(os.Stderr, "Error missing push item\n")
-			os.Exit(2)
-		}
 		// Create deque if doesn't exist.
 		deque = createDeque(dequeMap, args.Deque)
 		deque.Push(args.Data)
@@ -153,13 +168,9 @@ func main() {
 			os.Exit(4)
 		}
 		printSlice(deque.items)
+		os.Exit(0) // Quit after listing so doesn't write every time it lists
 	case "delete":
 		delete(dequeMap, args.Deque)
-	default:
-		fmt.Fprintln(os.Stderr, "Invalid Operation:", "'"+string(args.Operation)+"'",
-			"Valid Operators: shift, unshift, pop, push, list, delete")
-		printUsage()
-		os.Exit(1)
 	}
 
 	// If any case errors
@@ -181,7 +192,7 @@ func main() {
 	var jsonString string
 	jsonString, err = toJson(dequeMap)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Problem unmarshaling dequeMap:", err)
+		fmt.Fprintln(os.Stderr, "problem marshaling dequeMap:", err)
 		os.Exit(5)
 	}
 	err = writeDequeFile(jsonString, opt.DequeFile)
@@ -207,7 +218,7 @@ func printUsage() {
 
 	// Custom positional arguments (argv) documentation
 	fmt.Fprintln(out, "\nPositional Arguments (argv):")
-	fmt.Fprintln(out, "  operation    Operation to preform on deque (required).")
+	fmt.Fprintln(out, "  operation    Operation to perform on deque (required).")
 	fmt.Fprintln(out, "  deque        Deque to perform operation on (required, except keys).")
 	fmt.Fprintln(out, "  item         Item to prepend / append (required for unshift, push).")
 
@@ -241,27 +252,53 @@ func parseFlags() (Opt, error) {
 	return opt, nil
 }
 
-func parseArgV() ArgV {
-	// Rest of args after flag.Args parsed.
-	argv := flag.Args()
-	args := ArgV{}
+func validOps() string {
+	names := make([]string, 0, len(ops))
+	for name := range ops {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
+}
 
-	switch len(argv) {
-	case 0:
-		printUsage()
-		os.Exit(1)
-	case 1:
-		args.Operation = argv[0]
-	case 2:
-		args.Operation = argv[0]
-		args.Deque = argv[1]
-	case 3:
-		args.Operation = argv[0]
-		args.Deque = argv[1]
-		args.Data = argv[2]
+func parseArgV() (ArgV, error) {
+	argv := flag.Args()
+	if len(argv) == 0 {
+		return ArgV{}, errors.New("missing operation")
 	}
 
-	return args
+	name := argv[0]
+	spec, ok := ops[name]
+	if !ok {
+		return ArgV{}, fmt.Errorf("invalid operation %q (valid: %s)", name, validOps())
+	}
+
+	// Count the positional args this operation expects, including the op name.
+	want := 1
+	if spec.needsDeque {
+		want++
+	}
+	if spec.needsItem {
+		want++
+	}
+
+	if len(argv) < want {
+		return ArgV{}, fmt.Errorf("%s: missing argument(s), expected %d, got %d", name, want-1, len(argv)-1)
+	}
+	if len(argv) > want {
+		return ArgV{}, fmt.Errorf("%s: too many arguments, expected %d, got %d", name, want-1, len(argv)-1)
+	}
+
+	// Consume the remaining args in order.
+	args := ArgV{Operation: name}
+	rest := argv[1:]
+	if spec.needsDeque {
+		args.Deque, rest = rest[0], rest[1:]
+	}
+	if spec.needsItem {
+		args.Data = rest[0]
+	}
+	return args, nil
 }
 
 func readDeques(path string) (map[string]*Deque[any], error) {
