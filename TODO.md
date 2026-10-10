@@ -1,8 +1,7 @@
 # Todos
 
-* [ ] **Fix keys printSlice**
-  - dunno whats up with it but its printing like an invisible item before the actual keys for some reason. 
-  - Prolly some weirdness around sort I think.
+* [x] **Fix keys printSlice**
+  - Was creating empty deque then printing it.
 * [ ] **Add type switch to try to auto cast cli strs to json compat types**
   - It'd be dope if when someone ran `push deque 3` it knew that was an int instead of just making everything from the cli a str
   - Maybe also allow users to still say str 3 with like `'"3"' or something somehow...

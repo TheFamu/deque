@@ -6,7 +6,6 @@ import (
 	"flag" // TODO: Replace this with pflag for gnu arg support https://pkg.go.dev/github.com/spf13/pflag
 	"fmt"
 	"github.com/davecgh/go-spew/spew"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -83,26 +82,14 @@ func (dq *Deque[T]) Push(item T) {
 	dq.items = append(dq.items, item)
 }
 
-/* Thought I needed this, turns out, I do not...
-// Len returns the current size of the deque.
-func (dq *Deque[T]) Len() int {
-	return len(dq.items)
-}
-
-// IsEmpty checks if the deque has no elements.
-func (q *Deque[T]) IsEmpty() bool {
-	return len(q.items) == 0
-}
-*/
-
 func main() {
-	flag.Usage = printUsage
-	opt := parseFlags()
-	args := parseArgV()
-
 	var item any
 	var err error
 	var deque *Deque[any]
+
+	flag.Usage = printUsage
+	opt, err := parseFlags()
+	args := parseArgV()
 
 	// Mapping of string keys to Deque structs.
 	dequeMap := make(map[string]*Deque[any])
@@ -114,41 +101,56 @@ func main() {
 		os.Exit(3)
 	}
 
-	// Debug after read, before mutation.
+	// Debug after read json, before mutation.
 	if opt.Debug {
 		spew.Dump(dequeMap)
 	}
 
-	// Get the deque struct we're dealing with.
-	deque, err = getDeque(dequeMap, args)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to fetch deque struct from map: %v", err)
-		os.Exit(4)
-	}
+	deque = dequeMap[args.Deque]
 
 	switch args.Operation {
 	case "shift":
+		if deque == nil {
+			fmt.Fprintf(os.Stderr, "No deque named: '%s'\n", args.Deque)
+			os.Exit(4)
+		}
 		item, err = deque.Shift()
-		fmt.Println(item)
+		if err == nil {
+			fmt.Println(item)
+		}
 	case "unshift":
 		if args.Data == "" {
-			fmt.Fprintf(os.Stderr, "Error missing unshift item")
+			fmt.Fprintf(os.Stderr, "Error missing unshift item\n")
 			os.Exit(2)
 		}
+		// Create deque if doesn't exist.
+		deque = createDeque(dequeMap, args.Deque)
 		deque.Unshift(args.Data)
 	case "pop":
+		if deque == nil {
+			fmt.Fprintf(os.Stderr, "No deque named: '%s'\n", args.Deque)
+			os.Exit(4)
+		}
 		item, err = deque.Pop()
-		fmt.Println(item)
+		if err == nil {
+			fmt.Println(item)
+		}
 	case "push":
 		if args.Data == "" {
-			fmt.Fprintf(os.Stderr, "Error missing unshift item")
+			fmt.Fprintf(os.Stderr, "Error missing push item\n")
 			os.Exit(2)
 		}
+		// Create deque if doesn't exist.
+		deque = createDeque(dequeMap, args.Deque)
 		deque.Push(args.Data)
 	case "keys":
 		keys(dequeMap)
 		os.Exit(0) // Just bail after printing keys, no write
 	case "list":
+		if deque == nil {
+			fmt.Fprintf(os.Stderr, "No deque named: '%s'\n", args.Deque)
+			os.Exit(4)
+		}
 		printSlice(deque.items)
 	case "delete":
 		delete(dequeMap, args.Deque)
@@ -170,8 +172,22 @@ func main() {
 		os.Exit(0)
 	}
 
-	dequeMap[args.Deque] = deque
-	writeDequeFile(toJson(dequeMap), opt.DequeFile)
+    // Update map with new deque (except for on delete)
+    if args.Operation != "delete" {
+	    dequeMap[args.Deque] = deque
+    }
+
+	var jsonString string
+	jsonString, err = toJson(dequeMap)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Problem unmarshaling dequeMap:", err)
+		os.Exit(5)
+	}
+	err = writeDequeFile(jsonString, opt.DequeFile)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(6)
+	}
 }
 
 func printUsage() {
@@ -205,12 +221,12 @@ func printUsage() {
 	fmt.Fprintln(out, "  delete       Delete a deque")
 }
 
-func parseFlags() Opt {
+func parseFlags() (Opt, error) {
 	var opt Opt
 
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		log.Fatalf("Failed to get home directory: %v", err)
+		return opt, fmt.Errorf("Failed to get home directory: %w", err)
 	}
 
 	dequeFile := filepath.Join(homeDir, ".deque.json")
@@ -221,7 +237,7 @@ func parseFlags() Opt {
 	// TODO: Implement other storage backends
 	//    flag.StringVar(&opt.Backend, "backend", 'file', "Store backend (file, redis, db)")
 	flag.Parse()
-	return opt
+	return opt, nil
 }
 
 func parseArgV() ArgV {
@@ -266,25 +282,31 @@ func populateDeque(dequeMap map[string]*Deque[any], opt Opt) error {
 	return nil
 }
 
-// gets dq blizzard
-func getDeque(dequeMap map[string]*Deque[any], args ArgV) (*Deque[any], error) {
-	dq, ok := dequeMap[args.Deque]
-	if !ok {
-		// Error if unshift or pop
-		if args.Operation == "shift" || args.Operation == "pop" {
-			log.Fatalf("Deque " + args.Deque + " not found")
-		}
-
-		// Create it for unshift or push
-		dq = &Deque[any]{items: make([]any, 0)}
-		dequeMap[args.Deque] = dq
+// Create empty deque and put it in the map
+func createDeque(dequeMap map[string]*Deque[any], dequeName string) *Deque[any] {
+	dq, ok := dequeMap[dequeName]
+	// if deque already exists, just return it.
+	if ok {
+		return dq
 	}
-	dq = dequeMap[args.Deque]
-	return dq, nil
+	// Otherwise make new empty deque
+	dq = &Deque[any]{items: make([]any, 0)}
+	dequeMap[dequeName] = dq
+	return dq
 }
 
 func readDequeMapFile(dequeFile string) ([]byte, error) {
 	content, err := os.ReadFile(dequeFile)
+
+	if errors.Is(err, os.ErrNotExist) {
+	    file, err := os.Create(dequeFile)
+	    if err != nil {
+            return content, fmt.Errorf("failed to create deque file %w:", err)
+	    }
+
+	    defer file.Close() 
+	}
+
 	if err != nil {
 		return content, fmt.Errorf("Failed to read file: %s", err)
 	}
@@ -317,21 +339,22 @@ func printSlice(slice []any) {
 	fmt.Println()
 }
 
-func toJson(q map[string]*Deque[any]) string {
+func toJson(q map[string]*Deque[any]) (string, error) {
 	// Convert map to JSON bytes
 	jsonBytes, err := json.Marshal(q)
 	if err != nil {
-		log.Fatalf("Error marshaling to JSON: %v", err)
+		return "", err
 	}
 
 	// Convert bytes to string and return it
 	jsonString := string(jsonBytes)
-	return jsonString
+	return jsonString, nil
 }
 
-func writeDequeFile(json, dequeFile string) {
+func writeDequeFile(json, dequeFile string) error {
 	err := os.WriteFile(dequeFile, []byte(json), 0644)
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("failed to write json to file %w:", err)
 	}
+    return nil
 }
