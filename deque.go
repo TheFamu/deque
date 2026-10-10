@@ -5,7 +5,6 @@ import (
 	"errors"
 	"flag" // TODO: Replace this with pflag for gnu arg support https://pkg.go.dev/github.com/spf13/pflag
 	"fmt"
-	"github.com/davecgh/go-spew/spew"
 	"os"
 	"path/filepath"
 	"sort"
@@ -92,18 +91,20 @@ func main() {
 	args := parseArgV()
 
 	// Mapping of string keys to Deque structs.
-	dequeMap := make(map[string]*Deque[any])
+	var dequeMap map[string]*Deque[any]
 
-	// Populate dequeMap with structs directly from json.
-	err = populateDeque(dequeMap, opt)
+	dequeMap, err = readDeques(opt.DequeFile)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to populate dequeMap struct from json: %v", err)
-		os.Exit(3)
+		fmt.Fprintf(os.Stderr, "No deques yet: '%s'\n", err)
 	}
 
 	// Debug after read json, before mutation.
 	if opt.Debug {
-		spew.Dump(dequeMap)
+		b, err := json.MarshalIndent(dequeMap, "", "  ")
+		if err != nil {
+			fmt.Println("debug error marshaling map:", err)
+		}
+		fmt.Println(string(b))
 	}
 
 	deque = dequeMap[args.Deque]
@@ -172,10 +173,10 @@ func main() {
 		os.Exit(0)
 	}
 
-    // Update map with new deque (except for on delete)
-    if args.Operation != "delete" {
-	    dequeMap[args.Deque] = deque
-    }
+	// Update map with new deque (except for on delete)
+	if args.Operation != "delete" {
+		dequeMap[args.Deque] = deque
+	}
 
 	var jsonString string
 	jsonString, err = toJson(dequeMap)
@@ -231,7 +232,7 @@ func parseFlags() (Opt, error) {
 
 	dequeFile := filepath.Join(homeDir, ".deque.json")
 
-	flag.StringVar(&opt.DequeFile, "file", dequeFile, "File to store dedeques in")
+	flag.StringVar(&opt.DequeFile, "file", dequeFile, "File to store deques in")
 	flag.BoolVar(&opt.Debug, "debug", false, "Enable debug mode")
 	flag.BoolVar(&opt.Dry, "dry", false, "Don't update file after change")
 	// TODO: Implement other storage backends
@@ -263,23 +264,22 @@ func parseArgV() ArgV {
 	return args
 }
 
-func populateDeque(dequeMap map[string]*Deque[any], opt Opt) error {
-	jsonBytes, err := readDequeMapFile(opt.DequeFile)
+func readDeques(path string) (map[string]*Deque[any], error) {
+	dequeMap := make(map[string]*Deque[any])
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return dequeMap, nil
+	}
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("reading %s: %w", path, err)
 	}
-
-	//    fmt.Printf("Json File: %s, Bytes: %s\n", opt.DequeFile, jsonBytes)
-
-	if len(jsonBytes) == 0 {
-		return fmt.Errorf("Failed to unpack json: %s", err)
+	if len(data) == 0 {
+		return dequeMap, nil
 	}
-
-	if err := json.Unmarshal(jsonBytes, &dequeMap); err != nil {
-		return fmt.Errorf("Failed to unpack json: %s", err)
+	if err := json.Unmarshal(data, &dequeMap); err != nil {
+		return nil, fmt.Errorf("parsing %s: %w", path, err)
 	}
-
-	return nil
+	return dequeMap, nil
 }
 
 // Create empty deque and put it in the map
@@ -293,24 +293,6 @@ func createDeque(dequeMap map[string]*Deque[any], dequeName string) *Deque[any] 
 	dq = &Deque[any]{items: make([]any, 0)}
 	dequeMap[dequeName] = dq
 	return dq
-}
-
-func readDequeMapFile(dequeFile string) ([]byte, error) {
-	content, err := os.ReadFile(dequeFile)
-
-	if errors.Is(err, os.ErrNotExist) {
-	    file, err := os.Create(dequeFile)
-	    if err != nil {
-            return content, fmt.Errorf("failed to create deque file %w:", err)
-	    }
-
-	    defer file.Close() 
-	}
-
-	if err != nil {
-		return content, fmt.Errorf("Failed to read file: %s", err)
-	}
-	return content, nil
 }
 
 func keys(dequeMap map[string]*Deque[any]) {
@@ -330,13 +312,9 @@ func keys(dequeMap map[string]*Deque[any]) {
 }
 
 func printSlice(slice []any) {
-	for i, item := range slice {
-		fmt.Printf(item.(string))
-		if i < len(slice)-1 {
-			fmt.Printf(", ")
-		}
+	for _, value := range slice {
+		fmt.Println(value)
 	}
-	fmt.Println()
 }
 
 func toJson(q map[string]*Deque[any]) (string, error) {
@@ -356,5 +334,5 @@ func writeDequeFile(json, dequeFile string) error {
 	if err != nil {
 		return fmt.Errorf("failed to write json to file %w:", err)
 	}
-    return nil
+	return nil
 }
