@@ -22,11 +22,11 @@ var ops = map[string]opSpec{
 }
 
 // errCode is a map containing named error codes for critical error exit statuses.
-var errCode = map[string]int {
-    "problemReading": 3,
-    "dequeNotFound": 4,
-    "marshingJson": 5,
-    "atomicWrite": 6,
+var errCode = map[string]int{
+	"problemReading": 3,
+	"dequeNotFound":  4,
+	"marshingJson":   5,
+	"atomicWrite":    6,
 }
 
 var errEmptyDeque = errors.New("deque is empty")
@@ -54,8 +54,8 @@ type opSpec struct {
 
 // exitError is a struct holding error message and exit code.
 type exitError struct {
-    code int
-    err  error
+	code int
+	err  error
 }
 
 func (e *exitError) Error() string { return e.err.Error() }
@@ -115,104 +115,108 @@ func (dq *deque[T]) push(item T) {
 	dq.items = append(dq.items, item)
 }
 
-// main does almost nothing except print errors and call os.Exit(). 
+// main does almost nothing except print errors and call os.Exit().
 // The real work happens in run().
 func main() {
-    if err := run(); err != nil {
-        var ee *exitError
-        if errors.As(err, &ee) {
-            fmt.Fprintln(os.Stderr, "error:", ee.err)
-            os.Exit(ee.code)
-        }
-        fmt.Fprintln(os.Stderr, "error:", err)
-        os.Exit(1)
-    }
+	if err := run(); err != nil {
+		var ee *exitError
+		if errors.As(err, &ee) {
+			fmt.Fprintln(os.Stderr, "error:", ee.err)
+			os.Exit(ee.code)
+		}
+		fmt.Fprintln(os.Stderr, "error:", err)
+		os.Exit(1)
+	}
 }
 
 // run houses main application logic. Returns only errors.
 func run() error {
-    flag.Usage = printUsage
+	flag.Usage = printUsage
 
-    opts, err := parseFlags()
-    if err != nil {
-        return err
-    }
-    args, err := parseArgV()
-    if err != nil {
-        printUsage()
-        return err
-    }
-    dequeMap, err := readDeques(opts.dequeFile)
-    if err != nil {
-        return exitWith(errCode["problemReading"], fmt.Errorf("reading deques: %w", err))
-    }
+	opts, err := parseFlags()
+	if err != nil {
+		return err
+	}
+	args, err := parseArgV()
+	if err != nil {
+		printUsage()
+		return err
+	}
+	dequeMap, err := readDeques(opts.dequeFile)
+	if err != nil {
+		return exitWith(errCode["problemReading"], fmt.Errorf("reading deques: %w", err))
+	}
 
-	if opts.debug { debugDump(dequeMap) }
+	if opts.debug {
+		debugDump(dequeMap)
+	}
 
-    out, err := apply(dequeMap, args)
-    if err != nil {
-        return err
-    }
-    if opts.dry || args.operation == "keys" || args.operation == "list" {
-        return nil
-    }
+	out, err := apply(dequeMap, args)
+	if err != nil {
+		return err
+	}
+	if opts.dry || args.operation == "keys" || args.operation == "list" {
+		return nil
+	}
 
-	if opts.debug { debugDump(dequeMap) }
+	if opts.debug {
+		debugDump(dequeMap)
+	}
 
-    jsonBytes, err := json.Marshal(dequeMap)
-    if err != nil {
-        return exitWith(errCode["marshingJson"], fmt.Errorf("marshaling deques: %w", err))
-    }
-    if err := writeFileAtomic(opts.dequeFile, jsonBytes, 0644); err != nil {
-        return exitWith(errCode["atomicWrite"], fmt.Errorf("writing %s: %w", opts.dequeFile, err))
-    }
-    if out != nil {
-        fmt.Println(out) // print only after a successful write
-    }
-    return nil
+	jsonBytes, err := json.Marshal(dequeMap)
+	if err != nil {
+		return exitWith(errCode["marshingJson"], fmt.Errorf("marshaling deques: %w", err))
+	}
+	if err := writeFileAtomic(opts.dequeFile, jsonBytes, 0644); err != nil {
+		return exitWith(errCode["atomicWrite"], fmt.Errorf("writing %s: %w", opts.dequeFile, err))
+	}
+	if out != nil {
+		fmt.Println(out) // print only after a successful write
+	}
+	return nil
 }
 
 // exitWith is a wrapper for returning exitError with error message and exit code.
 func exitWith(code int, err error) error {
-    return &exitError{code: code, err: err}
+	return &exitError{code: code, err: err}
 }
 
 // apply house the main switch statement logic for handling deque operations.
 func apply(dequeMap map[string]*deque[any], args argV) (any, error) {
-    dq := dequeMap[args.dequeName]
-    needExisting := func() error {
-        if dq == nil {
-            return exitWith(errCode["dequeNotFound"], fmt.Errorf("no deque named %q", args.dequeName))
-        }
-        return nil
-    }
+	dq := dequeMap[args.dequeName]
+	needExisting := func() error {
+		if dq == nil {
+			return exitWith(errCode["dequeNotFound"], fmt.Errorf("no deque named %q", args.dequeName))
+		}
+		return nil
+	}
 
-    switch args.operation {
-    case "shift":
-        if err := needExisting(); err != nil {
-            return nil, err
-        }
-        return dq.shift()
-    case "pop":
-        if err := needExisting(); err != nil {
-            return nil, err
-        }
-        return dq.pop()
-    case "push":
-        createDeque(dequeMap, args.dequeName).push(args.data)
-    case "unshift":
-        createDeque(dequeMap, args.dequeName).unshift(args.data)
-    case "delete":
-        delete(dequeMap, args.dequeName)
-    case "keys":
-        keys(dequeMap)
-    case "list":
-        if err := needExisting(); err != nil {
-            return nil, err
-        }
-        printSlice(dq.items)
-    }
-    return nil, nil
+	switch args.operation {
+	case "shift":
+		if err := needExisting(); err != nil {
+			return nil, err
+		}
+		return dq.shift()
+	case "pop":
+		if err := needExisting(); err != nil {
+			return nil, err
+		}
+		return dq.pop()
+	case "push":
+		createDeque(dequeMap, args.dequeName).push(args.data)
+	case "unshift":
+		createDeque(dequeMap, args.dequeName).unshift(args.data)
+	case "delete":
+		delete(dequeMap, args.dequeName)
+	case "keys":
+		keys(dequeMap)
+	case "list":
+		if err := needExisting(); err != nil {
+			return nil, err
+		}
+		printSlice(dq.items)
+	}
+	return nil, nil
 }
 
 func printUsage() {
@@ -337,12 +341,12 @@ func readDeques(path string) (map[string]*deque[any], error) {
 
 // debugDump is helper that prints map as json for diagnostic purposes.
 func debugDump(m map[string]*deque[any]) {
-    b, err := json.MarshalIndent(m, "", "  ")
-    if err != nil {
-        fmt.Fprintln(os.Stderr, "debug error marshaling map:", err)
-        return
-    }
-    fmt.Fprintf(os.Stderr, "%s\n", b)
+	b, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "debug error marshaling map:", err)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "%s\n", b)
 }
 
 // createDeque creates empty deque and put it in the map.
