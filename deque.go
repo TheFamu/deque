@@ -104,7 +104,14 @@ func main() {
 	var deque *Deque[any]
 
 	flag.Usage = printUsage
+
 	opt, err := parseFlags()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "error:", err)
+		printUsage()
+		os.Exit(1)
+	}
+
 	args, err := parseArgV()
 
 	if err != nil {
@@ -118,7 +125,8 @@ func main() {
 
 	dequeMap, err = readDeques(opt.DequeFile)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "No deques yet: '%s'\n", err)
+		fmt.Fprintf(os.Stderr, "Error reading deques: %s\n", err)
+        os.Exit(1)
 	}
 
 	// Debug after read json, before mutation.
@@ -127,7 +135,7 @@ func main() {
 		if err != nil {
 			fmt.Println("debug error marshaling map:", err)
 		}
-		fmt.Println(string(b))
+		fmt.Fprintf(os.Stderr, "%s\n", string(b))
 	}
 
 	deque = dequeMap[args.Deque]
@@ -171,6 +179,8 @@ func main() {
 		os.Exit(0) // Quit after listing so doesn't write every time it lists
 	case "delete":
 		delete(dequeMap, args.Deque)
+    default:
+        panic("unhandled op " + args.Operation)
 	}
 
 	// If any case errors
@@ -189,15 +199,17 @@ func main() {
 		dequeMap[args.Deque] = deque
 	}
 
-	var jsonString string
-	jsonString, err = toJson(dequeMap)
+	// Convert dequeMap to jsonBytes
+	jsonBytes, err := json.Marshal(dequeMap)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "problem marshaling dequeMap:", err)
 		os.Exit(5)
 	}
-	err = writeDequeFile(jsonString, opt.DequeFile)
+
+	// Write jsonBytes to file
+	err = os.WriteFile(opt.DequeFile, []byte(jsonBytes), 0644)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintf(os.Stderr, "failed to write json to file: %s", err)
 		os.Exit(6)
 	}
 }
@@ -212,7 +224,7 @@ func printUsage() {
 	fmt.Fprintln(out, "Description:")
 	fmt.Fprintln(out, "  Perform basic deque (double ended queue) operations from the cli")
 
-	// Automated flags list
+	// Available flags list
 	fmt.Fprintln(out, "\nAvailable Flags:")
 	flag.PrintDefaults()
 
@@ -323,7 +335,7 @@ func readDeques(path string) (map[string]*Deque[any], error) {
 func createDeque(dequeMap map[string]*Deque[any], dequeName string) *Deque[any] {
 	dq, ok := dequeMap[dequeName]
 	// if deque already exists, just return it.
-	if ok {
+	if ok && dq != nil {
 		return dq
 	}
 	// Otherwise make new empty deque
@@ -352,24 +364,4 @@ func printSlice(slice []any) {
 	for _, value := range slice {
 		fmt.Println(value)
 	}
-}
-
-func toJson(q map[string]*Deque[any]) (string, error) {
-	// Convert map to JSON bytes
-	jsonBytes, err := json.Marshal(q)
-	if err != nil {
-		return "", err
-	}
-
-	// Convert bytes to string and return it
-	jsonString := string(jsonBytes)
-	return jsonString, nil
-}
-
-func writeDequeFile(json, dequeFile string) error {
-	err := os.WriteFile(dequeFile, []byte(json), 0644)
-	if err != nil {
-		return fmt.Errorf("failed to write json to file %w:", err)
-	}
-	return nil
 }
