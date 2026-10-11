@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-var ErrEmptyDeque = errors.New("deque is empty")
+var errEmptyDeque = errors.New("deque is empty")
 
 var ops = map[string]opSpec{
 	"shift":   {true, false},
@@ -23,47 +23,47 @@ var ops = map[string]opSpec{
 	"delete":  {true, false},
 }
 
-// ArgV is a struct holding flag arguments.
-type Opt struct {
-	DequeFile string
-	Backend   string
-	Debug     bool
-	Dry       bool
+// opt is a struct holding flag arguments.
+type opt struct {
+	dequeFile string
+	backend   string
+	debug     bool
+	dry       bool
 }
 
-// ArgV is a struct holding non flag arguments.
-type ArgV struct {
-	Operation string
-	Deque     string
-	Data      string
+// argV is a struct holding non flag arguments.
+type argV struct {
+	operation string
+	dequeName string
+	data      string
 }
 
-// opSpec is a struct holding specification for ArgV args.
+// opSpec is a struct holding specification for argV args.
 type opSpec struct {
 	needsDeque bool
 	needsItem  bool
 }
 
 // Double ended queue data structure holding items of type T.
-type Deque[T any] struct {
+type deque[T any] struct {
 	items []T
 }
 
 // UnmarshalJSON lets the json package unpack a standard JSON array directly into our struct.
-func (dq *Deque[T]) UnmarshalJSON(b []byte) error {
+func (dq *deque[T]) UnmarshalJSON(b []byte) error {
 	return json.Unmarshal(b, &dq.items)
 }
 
 // MarshalJSON ensures the struct serializes back down to a clean JSON array on disk.
-func (dq Deque[T]) MarshalJSON() ([]byte, error) {
+func (dq deque[T]) MarshalJSON() ([]byte, error) {
 	return json.Marshal(dq.items)
 }
 
-// Shift removes and returns the front item.
-func (dq *Deque[T]) Shift() (T, error) {
+// shift removes and returns the front item.
+func (dq *deque[T]) shift() (T, error) {
 	var zero T
 	if len(dq.items) == 0 {
-		return zero, ErrEmptyDeque
+		return zero, errEmptyDeque
 	}
 
 	item := dq.items[0]
@@ -75,17 +75,17 @@ func (dq *Deque[T]) Shift() (T, error) {
 	return item, nil
 }
 
-// Unshift add item to front of the deque.
-func (dq *Deque[T]) Unshift(item T) {
+// unshift add item to front of the deque.
+func (dq *deque[T]) unshift(item T) {
 	dq.items = append([]T{item}, dq.items...)
 }
 
-// Pop removes and returns item from the back of the deque.
-func (dq *Deque[T]) Pop() (T, error) {
+// pop removes and returns item from the back of the deque.
+func (dq *deque[T]) pop() (T, error) {
 	var zero T
 	n := len(dq.items)
 	if n == 0 {
-		return zero, ErrEmptyDeque
+		return zero, errEmptyDeque
 	}
 	item := dq.items[n-1]
 	dq.items[n-1] = zero // avoid memory leak
@@ -93,15 +93,15 @@ func (dq *Deque[T]) Pop() (T, error) {
 	return item, nil
 }
 
-// Push adds an item to the back of the deque.
-func (dq *Deque[T]) Push(item T) {
+// push adds an item to the back of the deque.
+func (dq *deque[T]) push(item T) {
 	dq.items = append(dq.items, item)
 }
 
 func main() {
 	var item any
 	var err error
-	var deque *Deque[any]
+	var dq *deque[any]
 
 	flag.Usage = printUsage
 
@@ -120,17 +120,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Mapping of string keys to Deque structs.
-	var dequeMap map[string]*Deque[any]
+	// Mapping of string keys to deque structs.
+	var dequeMap map[string]*deque[any]
 
-	dequeMap, err = readDeques(opt.DequeFile)
+	dequeMap, err = readDeques(opt.dequeFile)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error reading deques: %s\n", err)
         os.Exit(1)
 	}
 
-	// Debug after read json, before mutation.
-	if opt.Debug {
+	// debug after read json, before mutation.
+	if opt.debug {
 		b, err := json.MarshalIndent(dequeMap, "", "  ")
 		if err != nil {
 			fmt.Println("debug error marshaling map:", err)
@@ -138,49 +138,49 @@ func main() {
 		fmt.Fprintf(os.Stderr, "%s\n", string(b))
 	}
 
-	deque = dequeMap[args.Deque]
+	dq = dequeMap[args.dequeName]
 
-	switch args.Operation {
+	switch args.operation {
 	case "shift":
-		if deque == nil {
-			fmt.Fprintf(os.Stderr, "No deque named: '%s'\n", args.Deque)
+		if dq == nil {
+			fmt.Fprintf(os.Stderr, "No deque named: '%s'\n", args.dequeName)
 			os.Exit(4)
 		}
-		item, err = deque.Shift()
+		item, err = dq.shift()
 		if err == nil {
 			fmt.Println(item)
 		}
 	case "unshift":
 		// Create deque if doesn't exist.
-		deque = createDeque(dequeMap, args.Deque)
-		deque.Unshift(args.Data)
+		dq = createDeque(dequeMap, args.dequeName)
+		dq.unshift(args.data)
 	case "pop":
-		if deque == nil {
-			fmt.Fprintf(os.Stderr, "No deque named: '%s'\n", args.Deque)
+		if dq == nil {
+			fmt.Fprintf(os.Stderr, "No deque named: '%s'\n", args.dequeName)
 			os.Exit(4)
 		}
-		item, err = deque.Pop()
+		item, err = dq.pop()
 		if err == nil {
 			fmt.Println(item)
 		}
 	case "push":
 		// Create deque if doesn't exist.
-		deque = createDeque(dequeMap, args.Deque)
-		deque.Push(args.Data)
+		dq = createDeque(dequeMap, args.dequeName)
+		dq.push(args.data)
 	case "keys":
 		keys(dequeMap)
 		os.Exit(0) // Just bail after printing keys, no write
 	case "list":
-		if deque == nil {
-			fmt.Fprintf(os.Stderr, "No deque named: '%s'\n", args.Deque)
+		if dq == nil {
+			fmt.Fprintf(os.Stderr, "No deque named: '%s'\n", args.dequeName)
 			os.Exit(4)
 		}
-		printSlice(deque.items)
+		printSlice(dq.items)
 		os.Exit(0) // Quit after listing so doesn't write every time it lists
 	case "delete":
-		delete(dequeMap, args.Deque)
+		delete(dequeMap, args.dequeName)
     default:
-        panic("unhandled op " + args.Operation)
+        panic("unhandled op " + args.operation)
 	}
 
 	// If any case errors
@@ -190,13 +190,13 @@ func main() {
 	}
 
 	// Bail before writing to file.
-	if opt.Dry {
+	if opt.dry {
 		os.Exit(0)
 	}
 
 	// Update map with new deque (except for on delete)
-	if args.Operation != "delete" {
-		dequeMap[args.Deque] = deque
+	if args.operation != "delete" {
+		dequeMap[args.dequeName] = dq
 	}
 
 	// Convert dequeMap to jsonBytes
@@ -207,7 +207,7 @@ func main() {
 	}
 
 	// Write jsonBytes to file
-	err = os.WriteFile(opt.DequeFile, []byte(jsonBytes), 0644)
+	err = os.WriteFile(opt.dequeFile, []byte(jsonBytes), 0644)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to write json to file: %s", err)
 		os.Exit(6)
@@ -245,8 +245,8 @@ func printUsage() {
 	fmt.Fprintln(out, "  delete       Delete a deque")
 }
 
-func parseFlags() (Opt, error) {
-	var opt Opt
+func parseFlags() (opt, error) {
+	var opt opt
 
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -255,11 +255,11 @@ func parseFlags() (Opt, error) {
 
 	dequeFile := filepath.Join(homeDir, ".deque.json")
 
-	flag.StringVar(&opt.DequeFile, "file", dequeFile, "File to store deques in")
-	flag.BoolVar(&opt.Debug, "debug", false, "Enable debug mode")
-	flag.BoolVar(&opt.Dry, "dry", false, "Don't update file after change")
+	flag.StringVar(&opt.dequeFile, "file", dequeFile, "File to store deques in")
+	flag.BoolVar(&opt.debug, "debug", false, "Enable debug mode")
+	flag.BoolVar(&opt.dry, "dry", false, "Don't update file after change")
 	// TODO: Implement other storage backends
-	//    flag.StringVar(&opt.Backend, "backend", 'file', "Store backend (file, redis, db)")
+	//    flag.StringVar(&opt.backend, "backend", 'file', "Store backend (file, redis, db)")
 	flag.Parse()
 	return opt, nil
 }
@@ -273,16 +273,16 @@ func validOps() string {
 	return strings.Join(names, ", ")
 }
 
-func parseArgV() (ArgV, error) {
+func parseArgV() (argV, error) {
 	argv := flag.Args()
 	if len(argv) == 0 {
-		return ArgV{}, errors.New("missing operation")
+		return argV{}, errors.New("missing operation")
 	}
 
 	name := argv[0]
 	spec, ok := ops[name]
 	if !ok {
-		return ArgV{}, fmt.Errorf("invalid operation %q (valid: %s)", name, validOps())
+		return argV{}, fmt.Errorf("invalid operation %q (valid: %s)", name, validOps())
 	}
 
 	// Count the positional args this operation expects, including the op name.
@@ -295,26 +295,26 @@ func parseArgV() (ArgV, error) {
 	}
 
 	if len(argv) < want {
-		return ArgV{}, fmt.Errorf("%s: missing argument(s), expected %d, got %d", name, want-1, len(argv)-1)
+		return argV{}, fmt.Errorf("%s: missing argument(s), expected %d, got %d", name, want-1, len(argv)-1)
 	}
 	if len(argv) > want {
-		return ArgV{}, fmt.Errorf("%s: too many arguments, expected %d, got %d", name, want-1, len(argv)-1)
+		return argV{}, fmt.Errorf("%s: too many arguments, expected %d, got %d", name, want-1, len(argv)-1)
 	}
 
 	// Consume the remaining args in order.
-	args := ArgV{Operation: name}
+	args := argV{operation: name}
 	rest := argv[1:]
 	if spec.needsDeque {
-		args.Deque, rest = rest[0], rest[1:]
+		args.dequeName, rest = rest[0], rest[1:]
 	}
 	if spec.needsItem {
-		args.Data = rest[0]
+		args.data = rest[0]
 	}
 	return args, nil
 }
 
-func readDeques(path string) (map[string]*Deque[any], error) {
-	dequeMap := make(map[string]*Deque[any])
+func readDeques(path string) (map[string]*deque[any], error) {
+	dequeMap := make(map[string]*deque[any])
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return dequeMap, nil
@@ -332,19 +332,19 @@ func readDeques(path string) (map[string]*Deque[any], error) {
 }
 
 // Create empty deque and put it in the map
-func createDeque(dequeMap map[string]*Deque[any], dequeName string) *Deque[any] {
+func createDeque(dequeMap map[string]*deque[any], dequeName string) *deque[any] {
 	dq, ok := dequeMap[dequeName]
 	// if deque already exists, just return it.
 	if ok && dq != nil {
 		return dq
 	}
 	// Otherwise make new empty deque
-	dq = &Deque[any]{items: make([]any, 0)}
+	dq = &deque[any]{items: make([]any, 0)}
 	dequeMap[dequeName] = dq
 	return dq
 }
 
-func keys(dequeMap map[string]*Deque[any]) {
+func keys(dequeMap map[string]*deque[any]) {
 	// make slice with len of map
 	keys := make([]any, 0, len(dequeMap)) // has to be an any slice for printSlice
 
