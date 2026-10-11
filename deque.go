@@ -24,7 +24,7 @@ var ops = map[string]opSpec{
 }
 
 // opt is a struct holding flag arguments.
-type opt struct {
+type options struct {
 	dequeFile string
 	backend   string
 	debug     bool
@@ -113,7 +113,6 @@ func main() {
 	}
 
 	args, err := parseArgV()
-
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		printUsage()
@@ -125,15 +124,15 @@ func main() {
 
 	dequeMap, err = readDeques(opt.dequeFile)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading deques: %s\n", err)
-        os.Exit(1)
+		fmt.Fprintf(os.Stderr, "error reading deques: %s\n", err)
+		os.Exit(1)
 	}
 
 	// debug after read json, before mutation.
 	if opt.debug {
 		b, err := json.MarshalIndent(dequeMap, "", "  ")
 		if err != nil {
-			fmt.Println("debug error marshaling map:", err)
+			fmt.Println(os.Stderr, "debug error marshaling map:", err)
 		}
 		fmt.Fprintf(os.Stderr, "%s\n", string(b))
 	}
@@ -143,7 +142,7 @@ func main() {
 	switch args.operation {
 	case "shift":
 		if dq == nil {
-			fmt.Fprintf(os.Stderr, "No deque named: '%s'\n", args.dequeName)
+			fmt.Fprintf(os.Stderr, "no deque named: '%s'\n", args.dequeName)
 			os.Exit(4)
 		}
 		item, err = dq.shift()
@@ -156,7 +155,7 @@ func main() {
 		dq.unshift(args.data)
 	case "pop":
 		if dq == nil {
-			fmt.Fprintf(os.Stderr, "No deque named: '%s'\n", args.dequeName)
+			fmt.Fprintf(os.Stderr, "no deque named: '%s'\n", args.dequeName)
 			os.Exit(4)
 		}
 		item, err = dq.pop()
@@ -172,15 +171,15 @@ func main() {
 		os.Exit(0) // Just bail after printing keys, no write
 	case "list":
 		if dq == nil {
-			fmt.Fprintf(os.Stderr, "No deque named: '%s'\n", args.dequeName)
+			fmt.Fprintf(os.Stderr, "no deque named: '%s'\n", args.dequeName)
 			os.Exit(4)
 		}
 		printSlice(dq.items)
 		os.Exit(0) // Quit after listing so doesn't write every time it lists
 	case "delete":
 		delete(dequeMap, args.dequeName)
-    default:
-        panic("unhandled op " + args.operation)
+	default:
+		panic("unhandled op " + args.operation)
 	}
 
 	// If any case errors
@@ -206,10 +205,10 @@ func main() {
 		os.Exit(5)
 	}
 
-	// Write jsonBytes to file
-	err = os.WriteFile(opt.dequeFile, []byte(jsonBytes), 0644)
+	// Write jsonBytes to file atomically
+	err = writeFileAtomic(opt.dequeFile, jsonBytes, 0644)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to write json to file: %s", err)
+		fmt.Fprintf(os.Stderr, "failed to write json to file: %s\n", err)
 		os.Exit(6)
 	}
 }
@@ -245,8 +244,8 @@ func printUsage() {
 	fmt.Fprintln(out, "  delete       Delete a deque")
 }
 
-func parseFlags() (opt, error) {
-	var opt opt
+func parseFlags() (options, error) {
+	var opt options
 
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -364,4 +363,27 @@ func printSlice(slice []any) {
 	for _, value := range slice {
 		fmt.Println(value)
 	}
+}
+
+// writeFileAtomic creates a temp file and moves it to prevent data loss on
+// simultaneous writes or ctrl+c mid write.
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".deque-*.tmp")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name()) // no-op after a successful rename
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
 }
