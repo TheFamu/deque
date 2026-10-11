@@ -11,8 +11,6 @@ import (
 	"strings"
 )
 
-var errEmptyDeque = errors.New("deque is empty")
-
 var ops = map[string]opSpec{
 	"shift":   {true, false},
 	"unshift": {true, true},
@@ -22,6 +20,16 @@ var ops = map[string]opSpec{
 	"list":    {true, false},
 	"delete":  {true, false},
 }
+
+// errCode is a map containing named error codes for critical error exit statuses.
+var errCode = map[string]int {
+    "problemReading": 3,
+    "dequeNotFound": 4,
+    "marshingJson": 5,
+    "atomicWrite": 6,
+}
+
+var errEmptyDeque = errors.New("deque is empty")
 
 // opt is a struct holding flag arguments.
 type options struct {
@@ -43,6 +51,15 @@ type opSpec struct {
 	needsDeque bool
 	needsItem  bool
 }
+
+// exitError is a struct holding error message and exit code.
+type exitError struct {
+    code int
+    err  error
+}
+
+func (e *exitError) Error() string { return e.err.Error() }
+func (e *exitError) Unwrap() error { return e.err }
 
 // Double ended queue data structure holding items of type T.
 type deque[T any] struct {
@@ -98,119 +115,104 @@ func (dq *deque[T]) push(item T) {
 	dq.items = append(dq.items, item)
 }
 
+// main does almost nothing except print errors and call os.Exit(). 
+// The real work happens in run().
 func main() {
-	var item any
-	var err error
-	var dq *deque[any]
+    if err := run(); err != nil {
+        var ee *exitError
+        if errors.As(err, &ee) {
+            fmt.Fprintln(os.Stderr, "error:", ee.err)
+            os.Exit(ee.code)
+        }
+        fmt.Fprintln(os.Stderr, "error:", err)
+        os.Exit(1)
+    }
+}
 
-	flag.Usage = printUsage
+// run houses main application logic. Returns only errors.
+func run() error {
+    flag.Usage = printUsage
 
-	opt, err := parseFlags()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		printUsage()
-		os.Exit(1)
-	}
+    opts, err := parseFlags()
+    if err != nil {
+        return err
+    }
+    args, err := parseArgV()
+    if err != nil {
+        printUsage()
+        return err
+    }
+    dequeMap, err := readDeques(opts.dequeFile)
+    if err != nil {
+        return exitWith(errCode["problemReading"], fmt.Errorf("reading deques: %w", err))
+    }
 
-	args, err := parseArgV()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		printUsage()
-		os.Exit(1)
-	}
+	if opts.debug { debugDump(dequeMap) }
 
-	// Mapping of string keys to deque structs.
-	var dequeMap map[string]*deque[any]
+    out, err := apply(dequeMap, args)
+    if err != nil {
+        return err
+    }
+    if opts.dry || args.operation == "keys" || args.operation == "list" {
+        return nil
+    }
 
-	dequeMap, err = readDeques(opt.dequeFile)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error reading deques: %s\n", err)
-		os.Exit(1)
-	}
+	if opts.debug { debugDump(dequeMap) }
 
-	// debug after read json, before mutation.
-	if opt.debug {
-		b, err := json.MarshalIndent(dequeMap, "", "  ")
-		if err != nil {
-			fmt.Println(os.Stderr, "debug error marshaling map:", err)
-		}
-		fmt.Fprintf(os.Stderr, "%s\n", string(b))
-	}
+    jsonBytes, err := json.Marshal(dequeMap)
+    if err != nil {
+        return exitWith(errCode["marshingJson"], fmt.Errorf("marshaling deques: %w", err))
+    }
+    if err := writeFileAtomic(opts.dequeFile, jsonBytes, 0644); err != nil {
+        return exitWith(errCode["atomicWrite"], fmt.Errorf("writing %s: %w", opts.dequeFile, err))
+    }
+    if out != nil {
+        fmt.Println(out) // print only after a successful write
+    }
+    return nil
+}
 
-	dq = dequeMap[args.dequeName]
+// exitWith is a wrapper for returning exitError with error message and exit code.
+func exitWith(code int, err error) error {
+    return &exitError{code: code, err: err}
+}
 
-	switch args.operation {
-	case "shift":
-		if dq == nil {
-			fmt.Fprintf(os.Stderr, "no deque named: '%s'\n", args.dequeName)
-			os.Exit(4)
-		}
-		item, err = dq.shift()
-		if err == nil {
-			fmt.Println(item)
-		}
-	case "unshift":
-		// Create deque if doesn't exist.
-		dq = createDeque(dequeMap, args.dequeName)
-		dq.unshift(args.data)
-	case "pop":
-		if dq == nil {
-			fmt.Fprintf(os.Stderr, "no deque named: '%s'\n", args.dequeName)
-			os.Exit(4)
-		}
-		item, err = dq.pop()
-		if err == nil {
-			fmt.Println(item)
-		}
-	case "push":
-		// Create deque if doesn't exist.
-		dq = createDeque(dequeMap, args.dequeName)
-		dq.push(args.data)
-	case "keys":
-		keys(dequeMap)
-		os.Exit(0) // Just bail after printing keys, no write
-	case "list":
-		if dq == nil {
-			fmt.Fprintf(os.Stderr, "no deque named: '%s'\n", args.dequeName)
-			os.Exit(4)
-		}
-		printSlice(dq.items)
-		os.Exit(0) // Quit after listing so doesn't write every time it lists
-	case "delete":
-		delete(dequeMap, args.dequeName)
-	default:
-		panic("unhandled op " + args.operation)
-	}
+// apply house the main switch statement logic for handling deque operations.
+func apply(dequeMap map[string]*deque[any], args argV) (any, error) {
+    dq := dequeMap[args.dequeName]
+    needExisting := func() error {
+        if dq == nil {
+            return exitWith(errCode["dequeNotFound"], fmt.Errorf("no deque named %q", args.dequeName))
+        }
+        return nil
+    }
 
-	// If any case errors
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-
-	// Bail before writing to file.
-	if opt.dry {
-		os.Exit(0)
-	}
-
-	// Update map with new deque (except for on delete)
-	if args.operation != "delete" {
-		dequeMap[args.dequeName] = dq
-	}
-
-	// Convert dequeMap to jsonBytes
-	jsonBytes, err := json.Marshal(dequeMap)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "problem marshaling dequeMap:", err)
-		os.Exit(5)
-	}
-
-	// Write jsonBytes to file atomically
-	err = writeFileAtomic(opt.dequeFile, jsonBytes, 0644)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to write json to file: %s\n", err)
-		os.Exit(6)
-	}
+    switch args.operation {
+    case "shift":
+        if err := needExisting(); err != nil {
+            return nil, err
+        }
+        return dq.shift()
+    case "pop":
+        if err := needExisting(); err != nil {
+            return nil, err
+        }
+        return dq.pop()
+    case "push":
+        createDeque(dequeMap, args.dequeName).push(args.data)
+    case "unshift":
+        createDeque(dequeMap, args.dequeName).unshift(args.data)
+    case "delete":
+        delete(dequeMap, args.dequeName)
+    case "keys":
+        keys(dequeMap)
+    case "list":
+        if err := needExisting(); err != nil {
+            return nil, err
+        }
+        printSlice(dq.items)
+    }
+    return nil, nil
 }
 
 func printUsage() {
@@ -312,6 +314,9 @@ func parseArgV() (argV, error) {
 	return args, nil
 }
 
+// readDeques creates a new dequeMap and populates it by unmarshaling json from
+// dequeMap file, if file exists and has contents. Otherwise returns empty map
+// to be populated later by operations.
 func readDeques(path string) (map[string]*deque[any], error) {
 	dequeMap := make(map[string]*deque[any])
 	data, err := os.ReadFile(path)
@@ -330,7 +335,17 @@ func readDeques(path string) (map[string]*deque[any], error) {
 	return dequeMap, nil
 }
 
-// Create empty deque and put it in the map
+// debugDump is helper that prints map as json for diagnostic purposes.
+func debugDump(m map[string]*deque[any]) {
+    b, err := json.MarshalIndent(m, "", "  ")
+    if err != nil {
+        fmt.Fprintln(os.Stderr, "debug error marshaling map:", err)
+        return
+    }
+    fmt.Fprintf(os.Stderr, "%s\n", b)
+}
+
+// createDeque creates empty deque and put it in the map.
 func createDeque(dequeMap map[string]*deque[any], dequeName string) *deque[any] {
 	dq, ok := dequeMap[dequeName]
 	// if deque already exists, just return it.
@@ -345,18 +360,18 @@ func createDeque(dequeMap map[string]*deque[any], dequeName string) *deque[any] 
 
 func keys(dequeMap map[string]*deque[any]) {
 	// make slice with len of map
-	keys := make([]any, 0, len(dequeMap)) // has to be an any slice for printSlice
+	names := make([]any, 0, len(dequeMap)) // has to be an any slice for printSlice
 
 	for k := range dequeMap {
-		keys = append(keys, k)
+		names = append(names, k)
 	}
 
 	// Sort any slice by alpha (assumes all strings, which they come from json keys so they are)
-	sort.Slice(keys, func(i, j int) bool {
+	sort.Slice(names, func(i, j int) bool {
 		// Assert to strings
-		return keys[i].(string) < keys[j].(string)
+		return names[i].(string) < names[j].(string)
 	})
-	printSlice(keys)
+	printSlice(names)
 }
 
 func printSlice(slice []any) {
