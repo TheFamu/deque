@@ -2,8 +2,10 @@ name: Test Deque CLI Tool
 
 on:
   push:
-    branches: [main]
+    branches:
+      - 'dev-*'
   pull_request:
+    branches: [main]
 
 jobs:
   test:
