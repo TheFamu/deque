@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag" // TODO: Replace this with pflag for gnu arg support https://pkg.go.dev/github.com/spf13/pflag
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -115,31 +116,42 @@ func (dq *deque[T]) push(item T) {
 	dq.items = append(dq.items, item)
 }
 
-// main does almost nothing except print errors and call os.Exit().
-// The real work happens in run().
+// main does almost nothing except calls exitCode to print errors and call
+// os.Exit(). The real work happens in run().
 func main() {
-	if err := run(); err != nil {
-		var ee *exitError
-		if errors.As(err, &ee) {
-			fmt.Fprintln(os.Stderr, "error:", ee.err)
-			os.Exit(ee.code)
-		}
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
+	os.Exit(exitCode(run(os.Args[1:]), os.Stderr))
+}
+
+// exitCode maps an error from run() to a process exit status,
+// printing the error message to stderr along the way.
+func exitCode(err error, stderr io.Writer) int {
+	if err == nil || errors.Is(err, flag.ErrHelp) {
+		return 0
 	}
+
+	var ee *exitError
+	if errors.As(err, &ee) {
+		fmt.Fprintln(stderr, "error:", ee.err)
+		return ee.code
+	}
+
+	fmt.Fprintln(stderr, "error:", err)
+	return 1
 }
 
 // run houses main application logic. Returns only errors.
-func run() error {
-	flag.Usage = printUsage
+func run(cliArgs []string) error {
+	fs := flag.NewFlagSet("deque", flag.ContinueOnError)
+	fs.Usage = func() { printUsage(fs) }
 
-	opts, err := parseFlags()
+	opts, err := parseFlags(fs, cliArgs)
 	if err != nil {
 		return err
 	}
-	args, err := parseArgV()
+
+	args, err := parseArgV(fs.Args())
 	if err != nil {
-		printUsage()
+		printUsage(fs)
 		return err
 	}
 	dequeMap, err := readDeques(opts.dequeFile)
@@ -219,8 +231,8 @@ func apply(dequeMap map[string]*deque[any], args argV) (any, error) {
 	return nil, nil
 }
 
-func printUsage() {
-	out := flag.CommandLine.Output()
+func printUsage(fs *flag.FlagSet) {
+	out := fs.Output()
 
 	scriptName := filepath.Base(os.Args[0])
 
@@ -231,7 +243,7 @@ func printUsage() {
 
 	// Available flags list
 	fmt.Fprintln(out, "\nAvailable Flags:")
-	flag.PrintDefaults()
+	fs.PrintDefaults()
 
 	// Custom positional arguments (argv) documentation
 	fmt.Fprintln(out, "\nPositional Arguments (argv):")
@@ -250,7 +262,7 @@ func printUsage() {
 	fmt.Fprintln(out, "  delete       Delete a deque")
 }
 
-func parseFlags() (options, error) {
+func parseFlags(fs *flag.FlagSet, args []string) (options, error) {
 	var opt options
 
 	homeDir, err := os.UserHomeDir()
@@ -260,12 +272,16 @@ func parseFlags() (options, error) {
 
 	dequeFile := filepath.Join(homeDir, ".deque.json")
 
-	flag.StringVar(&opt.dequeFile, "file", dequeFile, "File to store deques in")
-	flag.BoolVar(&opt.debug, "debug", false, "Enable debug mode")
-	flag.BoolVar(&opt.dry, "dry", false, "Don't update file after change")
+	fs.StringVar(&opt.dequeFile, "file", dequeFile, "File to store deques in")
+	fs.BoolVar(&opt.debug, "debug", false, "Enable debug mode")
+	fs.BoolVar(&opt.dry, "dry", false, "Don't update file after change")
 	// TODO: Implement other storage backends
 	//    flag.StringVar(&opt.backend, "backend", 'file', "Store backend (file, redis, db)")
-	flag.Parse()
+
+	if err := fs.Parse(args); err != nil {
+		return opt, err
+	}
+
 	return opt, nil
 }
 
@@ -278,8 +294,7 @@ func validOps() string {
 	return strings.Join(names, ", ")
 }
 
-func parseArgV() (argV, error) {
-	argv := flag.Args()
+func parseArgV(argv []string) (argV, error) {
 	if len(argv) == 0 {
 		return argV{}, errors.New("missing operation")
 	}
