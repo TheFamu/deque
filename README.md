@@ -1,6 +1,7 @@
 # Deque
 
 [![Test](https://github.com/TheFamu/deque/actions/workflows/actions.yml/badge.svg?branch=main)](https://github.com/TheFamu/deque/actions/workflows/actions.yml)
+[![Release](https://img.shields.io/github/v/release/TheFamu/deque)](https://github.com/TheFamu/deque/releases/latest)
 
 A double ended queue cli utility written in Go.
 
@@ -10,6 +11,14 @@ Download the archive for your platform from the [latest release](https://github.
 extract it, and put the `deque` binary somewhere on your `PATH`.
 
 ### Linux / macOS
+
+Easy install via bash script:
+
+```bash
+curl https://raw.githubusercontent.com/TheFamu/deque/refs/heads/main/install.sh | bash
+```
+
+Manual Install:
 
 ```shell
 VERSION=v0.1.0
