@@ -22,7 +22,9 @@ Available Flags:
   -dry
     	Don't update file after change
   -file string
-    	File to store deques in (default "/home/blue/.deque.json")
+    	File to store deques in (default "~/.deque.json")
+  -version
+    	Print version info
 
 Positional Arguments (argv):
   operation    Operation to perform on deque (required).

@@ -12,6 +12,8 @@ import (
 	"strings"
 )
 
+var version = "dev"
+
 var ops = map[string]opSpec{
 	"shift":   {true, false},
 	"unshift": {true, true},
@@ -36,6 +38,7 @@ var errEmptyDeque = errors.New("deque is empty")
 type options struct {
 	dequeFile string
 	backend   string
+	version   bool
 	debug     bool
 	dry       bool
 }
@@ -147,6 +150,11 @@ func run(cliArgs []string) error {
 	opts, err := parseFlags(fs, cliArgs)
 	if err != nil {
 		return err
+	}
+
+	if opts.version {
+		fmt.Printf("deque: %s\n", version)
+		return nil
 	}
 
 	args, err := parseArgV(fs.Args())
@@ -272,6 +280,7 @@ func parseFlags(fs *flag.FlagSet, args []string) (options, error) {
 
 	dequeFile := filepath.Join(homeDir, ".deque.json")
 
+	fs.BoolVar(&opt.version, "version", false, "Print version info")
 	fs.StringVar(&opt.dequeFile, "file", dequeFile, "File to store deques in")
 	fs.BoolVar(&opt.debug, "debug", false, "Enable debug mode")
 	fs.BoolVar(&opt.dry, "dry", false, "Don't update file after change")

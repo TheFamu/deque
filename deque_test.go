@@ -74,6 +74,14 @@ func TestRun(t *testing.T) {
 	}{
 		// Successes
 		{
+			name:        "version print",
+			args:        []string{"-version"},
+			createFile:  false,
+			fileContent: `{}`,
+			filePath:    filepath.Join(t.TempDir(), "deques.json"),
+			wantCode:    0,
+		},
+		{
 			name:        "debug print",
 			args:        []string{"-debug", "pop", "groceries"},
 			createFile:  true,
@@ -418,6 +426,7 @@ func TestApply(t *testing.T) {
 		},
 	}
 	for _, tc := range tests {
+		silenceOutput(t) // apply is noisy so we send it to /dev/null
 		t.Run(tc.name, func(t *testing.T) {
 
 			got, err := apply(tc.dequeMap, tc.args)
