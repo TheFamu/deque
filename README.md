@@ -11,6 +11,14 @@ extract it, and put the `deque` binary somewhere on your `PATH`.
 
 ### Linux / macOS
 
+Easy install via bash script:
+
+```bash
+curl https://raw.githubusercontent.com/TheFamu/deque/refs/heads/main/install.sh | bash
+```
+
+Manual Install:
+
 ```shell
 VERSION=v0.1.0
 OS=linux      # or: darwin
