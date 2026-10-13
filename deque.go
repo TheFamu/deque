@@ -176,6 +176,9 @@ func run(cliArgs []string) error {
 		return err
 	}
 	if opts.dry || args.operation == "keys" || args.operation == "list" {
+		if out != nil {
+			fmt.Println(out)
+		}
 		return nil
 	}
 
