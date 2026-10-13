@@ -1,6 +1,7 @@
 # Deque
 
 [![Test](https://github.com/TheFamu/deque/actions/workflows/actions.yml/badge.svg?branch=main)](https://github.com/TheFamu/deque/actions/workflows/actions.yml)
+[![Release](https://img.shields.io/github/v/release/TheFamu/deque)](https://github.com/TheFamu/deque/releases/latest)
 
 A double ended queue cli utility written in Go.
 
